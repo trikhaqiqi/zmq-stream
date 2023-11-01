@@ -1,211 +1,97 @@
-import sys
-sys.path.append('/home/rastekid/Projects/GETI/Code')
-sys.path.insert(0, '../')
-from app.analytics.trackers.centroidtracker import CentroidTracker
-from app.analytics.trackers.trackableobject import TrackableObject
-
-from imutils.video import FPS
-from geti_sdk.deployment import Deployment
-
-import logging
-import imutils
-import dlib
+import requests
 import json
-import os
-import time
-import cv2
-import zmq
-import base64
+import threading
+import sys
+from app.analytics.analyticclient import AnalyticClient
 
-import app.configs.helper as helper
+sys.path.append("../../")
+import app.configs.config as conf
 
-logging.basicConfig(level = logging.INFO, format = "[INFO] %(message)s")
-logger = logging.getLogger(__name__)
-
-with open('./app/configs/config.json', 'r') as config_file:
+with open('app/configs/configModel.json', 'r') as config_file:
     config = json.load(config_file)
 
-kamera_id = 2
-camera = list(filter(lambda x: x["id"] == kamera_id, config["cameras"]))[0]
-zmq_address = camera["zmq_address"]
-rtsp_url = camera["rtsp_url"]
-deployment = camera["deployment"]
-tmp = camera["tmp"]
-det_duration = camera["det_duration"]
+dataKamera = conf.getDataKamera()
+dataKameraLean = conf.getDataKameraPeopleLean()
+dataKameraPeopleCount = conf.getDataKameraPeopleCount()
+dataKameraJump = conf.getDataKameraPeopleJump()
 
-def people_counter(video_path, offline_deployment):
-    
-    logger.info("Starting the video..")
-    vs = cv2.VideoCapture(video_path)
-    
-    W = H = None
+# print("data semua kamera",dataKamera)
+# print("data semua kamera jump",dataKameraJump)
+# print("data semua kamera lean",dataKameraLean)
+# print("data semua kamera people count",dataKameraPeopleCount) ok
 
-    ct = CentroidTracker(maxDisappeared=40, maxDistance=50)
-    
-    trackers = []
-    trackableObjects = {}
-    totalFrames = 0
-    
-    fps = FPS().start()
-    
-    start_time = time.time()
-    count = 0
-    _alert_ = False
-    
-    object_id = []
-    object_id_tmp = []
+def run_dataKameraLean():
+    port = 666
+    for kamera in dataKameraLean:
+        for i in range(len(kamera)):
+            detection = "lean"
+            model = list(filter(lambda x: x["detection"] == detection, config["model"]))[0]
+            deployment = model["deployment"]
+            tmp = model["tmp"]
+            det_duration = model["det_duration"]
+            tempAnalytic = AnalyticClient()
+            tempAnalytic.setIp("127.0.0.1")
+            tempAnalytic.setPort(int(str(port) + str(i)))
+            tempAnalytic.setRtsp(kamera["url"])
+            tempAnalytic.setDeployment(deployment)
+            tempAnalytic.setTmp(tmp)
+            tempAnalytic.setDetDuration(det_duration)
+            tempAnalytic.setLokasiKamera(kamera["location"])
+            tempAnalytic.start()
+            listAnalytic.append(tempAnalytic)
 
-    context = zmq.Context()
-    footage_socket = context.socket(zmq.PUB)
-    footage_socket.bind(zmq_address)
-    
-    while True:
-        
-        time.sleep(.05)
-        
-        frame = vs.read()
-        frame = frame[1]
-        if frame is None:
-            break
-            
-        frame = imutils.resize(frame, width = 2000)
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+def run_dataKameraJump():
+    port = 888
+    for kameraJump in dataKameraJump:
+        for i in range(len(kameraJump)):
+            detection = "jump"
+            model = list(filter(lambda x: x["detection"] == detection, config["model"]))[0]
+            deployment = model["deployment"]
+            tmp = model["tmp"]
+            det_duration = model["det_duration"]
+            tempAnalytic = AnalyticClient()
+            tempAnalytic.setIp("127.0.0.1")
+            tempAnalytic.setPort(int(str(port) + str(i)))
+            tempAnalytic.setRtsp(kameraJump["url"])
+            tempAnalytic.setDeployment(deployment)
+            tempAnalytic.setTmp(tmp)
+            tempAnalytic.setDetDuration(det_duration)
+            tempAnalytic.setLokasiKamera(kameraJump["location"])
+            tempAnalytic.start()
+            listAnalytic.append(tempAnalytic)
 
-        if W is None or H is None:
-            (H, W) = frame.shape[:2]
+def run_dataKameraPeopleCounting():
+    port = 777
+    for kameraPeople in dataKameraPeopleCount:
+        for i in range(len(kameraPeople)):
+            detection = "people_counting"
+            model = list(filter(lambda x: x["detection"] == detection, config["model"]))[0]
+            deployment = model["deployment"]
+            tmp = model["tmp"]
+            det_duration = model["det_duration"]
+            peopleCounting = AnalyticClient()
+            peopleCounting.setIp("127.0.0.1")
+            peopleCounting.setPort(int(str(port) + str(i)))
+            peopleCounting.setRtsp(kameraPeople["url"])
+            peopleCounting.setDeployment(deployment)
+            peopleCounting.setTmp(tmp)
+            peopleCounting.setDetDuration(det_duration)
+            peopleCounting.setLokasiKamera(kameraPeople["location"])
+            peopleCounting.start()
+            listAnalytic.append(peopleCounting)  
 
-        rects = []
-
-        if totalFrames % 10 == 0:
-            trackers = []
-            
-            start_time_process = time.time()
-            numpy_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            detections = offline_deployment.infer(numpy_rgb)
-            end_time_process = time.time()
-            
-            time_process = end_time_process - start_time_process
-            infer_process = "{:.2f}".format(time_process)
-            
-            # print('INFER PROCCESS : ', infer_process)
-            
-            for annot in detections.annotations:
-                for lab in annot.labels:
-                    scores = lab.probability
-                    classId = lab.name
-                    
-                    confidence = scores
-                    if confidence > 0.5 and (classId != 'No Object'):
-                        _alert_ = True
-                        center_x = int(annot.shape.x * W)
-                        center_y = int(annot.shape.y * H)
-                        width = int(annot.shape.width * W)
-                        height = int(annot.shape.height * H)
-                        left = int(center_x - width / 2)
-                        top = int(center_y - height / 2)
-                        cv2.rectangle(frame, (left, top), (left + width, top + height), (0, 255, 0), 2)
-                        
-                        tracker = dlib.correlation_tracker()
-                        rect = dlib.rectangle(int(annot.shape.x), int(annot.shape.y), int(annot.shape.x+annot.shape.width) , int(annot.shape.y+annot.shape.height))
-                        tracker.start_track(numpy_rgb, rect)
-                        trackers.append(tracker)
-
-        else:
-            for tracker in trackers:
-                
-                tracker.update(rgb)
-                pos = tracker.get_position()
-                startX = int(pos.left())
-                startY = int(pos.top())
-                endX = int(pos.right())
-                endY = int(pos.bottom())
-                rects.append((startX, startY, endX, endY))
-                
-        objects = ct.update(rects)
-
-        object_id = []
-        for (objectID, centroid) in objects.items():
-            to = trackableObjects.get(objectID, None)
-
-            if to is None:
-                to = TrackableObject(objectID, centroid)
-            else:
-                to.centroids.append(centroid)
-
-            trackableObjects[objectID] = to
-            object_id.append(objectID)
-            text = "ID {}".format(objectID)
-            cv2.putText(frame, classId, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-            cv2.rectangle(frame, (centroid[0] - 10, centroid[1] - 10), (centroid[0] + 10, centroid[1] + 10), (0, 255, 0), 2)
-
-        # print(_alert_)
-        current_time = time.time()
-        elapsed_time = current_time - start_time
-        
-        unique_id = set(object_id)
-        unique_id_ = list(unique_id)
-
-        diff_unique_id = [item for item in unique_id_ if item not in object_id_tmp]
-            
-
-        if _alert_ :
-            if elapsed_time >= 1.0:
-                count += 1
-                start_time = current_time
-                
-        if count >= det_duration :
-            
-            print(len(objects))
-            print('obj sebelumnya : ', object_id_tmp, '| jumlah : ' + str(len(object_id_tmp)))
-            print('obj sekarang : ', unique_id_, '| jumlah : ' + str(len(unique_id_)))
-            print('diff array : ', diff_unique_id)
-            
-            object_id_tmp = unique_id_
-            
-            ts = helper.timestamp("%Y%m%d%H%M%S")
-            
-            img_name = ts + '.jpg'
-            img_path = tmp
-            obj_count = len(diff_unique_id)
-            
-            
-            ## KIRIM DATA ##
-            if obj_count > 0 :
-                cv2.imwrite(img_path + img_name, frame)
-                print(obj_count)
-                
-                # helper.send_mqtt(img_path, img_name, obj_count)
-            
-            object_id = []
-            _alert_ = False
-            count = 0
-
-        cv2.putText(frame, str(len(diff_unique_id)), (60, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 5)
-        # cv2.imshow("Real-Time Monitoring/Analysis Window", frame)
-        
-        frame = cv2.resize(frame,(720, 420))
-        encoded, buffer = cv2.imencode('.jpg', frame)
-        jpg_as_text = base64.b64encode(buffer)
-        footage_socket.send(jpg_as_text)
-        
-        key = cv2.waitKey(1) & 0xFF
-        
-        if key == ord("q"):
-            break
-        
-        totalFrames += 1
-        fps.update()
-
-    fps.stop()
-    logger.info("Elapsed time: {:.2f}".format(fps.elapsed()))
-    logger.info("Approx. FPS: {:.2f}".format(fps.fps()))
-
-    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    print("[INFO] loading deployment...")
+    listAnalytic = []
     
-    offline_deployment = Deployment.from_folder(deployment)
-    offline_deployment.load_inference_models(device="CPU")
-    
-    people_counter(rtsp_url, offline_deployment)
+    thread_dataKameraLean = threading.Thread(target=run_dataKameraLean)
+    thread_dataKameraPeopleCounting = threading.Thread(target=run_dataKameraPeopleCounting)
+    thread_dataKameraJump = threading.Thread(target=run_dataKameraJump)
+
+    thread_dataKameraLean.start()
+    thread_dataKameraPeopleCounting.start()
+    thread_dataKameraJump.start()
+
+    thread_dataKameraLean.join()
+    thread_dataKameraPeopleCounting.join()
+    thread_dataKameraJump.join()

@@ -1,0 +1,22 @@
+{
+    "model": [
+        {
+            "detection": "people_counting",
+            "deployment" : "/home/ilyas/Project/Rastek/zmq-stream/app/analytics/models/Deployment-JPO People detection",
+            "tmp" : "/home/ilyas/Project/Rastek/zmq-stream/app/static/tmp/people_counting/",
+            "det_duration" : 5
+        },
+        {
+            "detection": "lean",
+            "deployment" : "/home/ilyas/Project/Rastek/zmq-stream/app/analytics/models/Deployment-JPO_Lean",
+            "tmp" : "/home/ilyas/Project/Rastek/zmq-stream/app/static/tmp/lean/",
+            "det_duration" : 5
+        },
+        {
+            "detection": "jumping",
+            "deployment" : "/home/ilyas/Project/Rastek/zmq-stream/app/analytics/models/Deployment-JPO_Jump_No_Jump",
+            "tmp" : "/home/ilyas/Project/Rastek/zmq-stream/app/static/tmp/jumping/",
+            "det_duration" : 5
+        }
+    ]
+  }
